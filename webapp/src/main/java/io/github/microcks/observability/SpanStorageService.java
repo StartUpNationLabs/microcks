@@ -173,7 +173,7 @@ public class SpanStorageService {
       }
       return allSpans.stream()
             .filter(span -> requiredAttributes.entrySet().stream().allMatch(
-                  entry -> valuesEqual(span.toSpanData().getAttributes().get(entry.getKey()), entry.getValue())))
+                  entry -> valuesEqualAttr(span.toSpanData().getAttributes().get(entry.getKey()), entry.getValue())))
             .toList();
    }
 
@@ -189,8 +189,10 @@ public class SpanStorageService {
          return new ArrayList<>(spansByTraceId.keySet());
       }
       return spansByTraceId.entrySet().stream()
-            .filter(entry -> entry.getValue().stream().anyMatch(span -> requiredAttributes.entrySet().stream().allMatch(
-                  reqAttr -> valuesEqual(span.toSpanData().getAttributes().get(reqAttr.getKey()), reqAttr.getValue()))))
+            .filter(entry -> entry.getValue().stream()
+                  .anyMatch(span -> requiredAttributes.entrySet().stream()
+                        .allMatch(reqAttr -> valuesEqualAttr(span.toSpanData().getAttributes().get(reqAttr.getKey()),
+                              reqAttr.getValue()))))
             .map(Map.Entry::getKey)
             // Sort by recency - most recent first
             .sorted((id1, id2) -> {
@@ -205,7 +207,7 @@ public class SpanStorageService {
    }
 
 
-   private boolean valuesEqual(Object actual, Object expected) {
+   public static boolean valuesEqualAttr(Object actual, Object expected) {
       if (actual == null && expected == null)
          return true;
       if (actual == null || expected == null)

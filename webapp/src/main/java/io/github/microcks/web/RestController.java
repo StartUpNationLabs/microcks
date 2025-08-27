@@ -230,6 +230,7 @@ public class RestController {
    /** Process REST mock invocation. */
    private ResponseEntity<byte[]> processMockInvocationRequest(MockInvocationContext ic, long startTime, Long delay,
          String body, HttpHeaders headers, HttpServletRequest request, HttpMethod method) {
+      Span.current().setAttribute("explain-trace", true);
 
       String violationMsg = validateParameterConstraintsIfAny(ic.operation(), request);
       if (violationMsg != null) {

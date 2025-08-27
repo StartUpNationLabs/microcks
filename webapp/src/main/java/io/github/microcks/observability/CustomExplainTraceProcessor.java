@@ -16,6 +16,7 @@
 package io.github.microcks.observability;
 
 import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.context.Context;
 
 import org.slf4j.Logger;
@@ -62,14 +63,12 @@ public class CustomExplainTraceProcessor implements SpanProcessor {
    @Override
    public void onEnd(@Nonnull ReadableSpan span) {
       // Called when a span ends - delegate to storage service if span matches filter criteria
-      // if span has attribute db.system skip it
+      // if span has attribute explain-trace save it
       Map<AttributeKey<?>, Object> attributes = span.toSpanData().getAttributes().asMap();
-      if (attributes.containsKey(AttributeKey.stringKey("db.system"))) {
-         return;
+      if (attributes.keySet().stream()
+            .anyMatch(key -> SpanStorageService.valuesEqualAttr(key, AttributeKey.booleanKey("explain-trace")))) {
+         spanStorageService.storeSpan(span);
       }
-
-      // Delegate storage to the service
-      spanStorageService.storeSpan(span);
    }
 
    @Override
