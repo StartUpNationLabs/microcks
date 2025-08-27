@@ -16,6 +16,7 @@
 import {
   Component,
   OnInit,
+  OnDestroy,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
 } from '@angular/core';
@@ -44,6 +45,7 @@ import { LabelListComponent } from '../../../components/label-list/label-list.co
 import { TimeAgoPipe } from '../../../components/time-ago.pipe';
 
 import { ExchangesTabsetComponent } from './_components/exchanges-tabset/exchanges-tabset.component';
+import { LiveTracesComponent } from './_components/live-traces/live-traces.component';
 import { GenerateSamplesDialogComponent } from './_components/generate-samples.dialog';
 import { GenericResourcesDialogComponent } from './_components/generic-resources.dialog';
 import { ManageSamplesDialogComponent } from './_components/manage-samples.dialog';
@@ -67,6 +69,7 @@ import { ConfigService } from '../../../services/config.service';
 import { ContractsService } from '../../../services/contracts.service';
 import { MetricsService } from '../../../services/metrics.service';
 import { ServicesService } from '../../../services/services.service';
+// Tracing lives in LiveTracesComponent
 
 @Component({
   selector: 'app-service-detail-page',
@@ -77,6 +80,7 @@ import { ServicesService } from '../../../services/services.service';
     CommonModule,
     BsDropdownModule,
     ExchangesTabsetComponent,
+  LiveTracesComponent,
     GradeIndexComponent,
     LabelListComponent,
     ListModule,
@@ -105,6 +109,7 @@ export class ServiceDetailPageComponent implements OnInit {
   aiCopilotTaskId: string | null = null;
   aiPoller?: Subscription;
 
+
   constructor(
     private servicesSvc: ServicesService,
     private contractsSvc: ContractsService,
@@ -115,7 +120,7 @@ export class ServiceDetailPageComponent implements OnInit {
     private modalService: BsModalService,
     protected notificationService: NotificationService,
     private route: ActivatedRoute,
-    private router: Router,
+  private router: Router,
     private ref: ChangeDetectorRef
   ) {}
 
@@ -173,6 +178,7 @@ export class ServiceDetailPageComponent implements OnInit {
       useExpandItems: true,
     } as ListConfig;
   }
+
 
   private refreshServiceView(): void {
     // Because we're using the ChangeDetectionStrategy.OnPush, we have to explicitely
