@@ -38,6 +38,15 @@ import io.github.microcks.util.dispatcher.ProxyFallbackSpecification;
 import io.github.microcks.util.el.EvaluableRequest;
 import io.github.microcks.util.script.ScriptEngineBinder;
 
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.api.trace.Tracer;
+import io.opentelemetry.context.Scope;
+
+import io.opentelemetry.instrumentation.annotations.WithSpan;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -111,9 +120,28 @@ public class RestInvocationProcessor {
     * @param request   The HTTP servlet request
     * @return A ResponseResult containing the status, headers, and body of the response
     */
+   @WithSpan(kind = SpanKind.INTERNAL, value = "RestInvocationProcessor.processInvocation")
    public ResponseResult processInvocation(MockInvocationContext ic, long startTime, Long delay, String body,
          Map<String, List<String>> headers, HttpServletRequest request) {
 
+      Span span = Span.current();
+
+      span.setAttribute("service.name", ic.service().getName());
+      span.setAttribute("service.version", ic.service().getVersion());
+      span.setAttribute("operation.name", ic.operation().getName());
+      span.setAttribute("operation.method", ic.operation().getMethod());
+      span.setAttribute("operation.id", IdBuilder.buildOperationId(ic.service(), ic.operation()));
+
+
+      if (StringUtils.isNotEmpty(body)) {
+         span.addEvent("request_body", Attributes.builder().put("body.length", body.length())
+               .put("body.content", body.length() > 1000 ? body.substring(0, 1000) + "..." : body).build());
+      }
+
+      if (headers != null && !headers.isEmpty()) {
+         span.addEvent("request_headers", Attributes.builder().put("headers.count", headers.size())
+               .put("headers.content", headers.toString()).build());
+      }
       // We must find dispatcher and its rules. Default to operation ones but
       // if we have a Fallback or Proxy-Fallback this is the one who is holding the first pass rules.
       FallbackSpecification fallback = MockControllerCommons.getFallbackIfAny(ic.operation());
@@ -121,7 +149,6 @@ public class RestInvocationProcessor {
       String dispatcher = getDispatcher(ic, fallback, proxyFallback);
       String dispatcherRules = getDispatcherRules(ic, fallback, proxyFallback);
 
-      //
       DispatchContext dispatchContext = computeDispatchCriteria(ic.service(), dispatcher, dispatcherRules,
             getURIPattern(ic.operation().getName()), UriUtils.decode(ic.resourcePath(), StandardCharsets.UTF_8),
             request, body);
@@ -130,11 +157,28 @@ public class RestInvocationProcessor {
       List<Response> responses;
       Response response = getResponse(ic, request, dispatchContext);
 
+      if (response != null) {
+         span.setAttribute("response.found", true);
+         span.addEvent("response_found",
+               Attributes.builder().put("response.name", response.getName())
+                     .put("response.media_type", response.getMediaType() != null ? response.getMediaType() : "unknown")
+                     .build());
+      } else {
+         span.setAttribute("response.found", false);
+      }
+
       if (response == null && fallback != null) {
          // If we've found nothing and got a fallback, that's the moment!
          responses = responseRepository.findByOperationIdAndName(
                IdBuilder.buildOperationId(ic.service(), ic.operation()), fallback.getFallback());
          response = getResponseByMediaType(responses, request);
+
+         if (response != null) {
+            span.setAttribute("response.found", true);
+            span.addEvent("fallback_response_found", Attributes.builder().put("response.name", response.getName())
+                  .put("response.media_type", response.getMediaType() != null ? response.getMediaType() : "unknown")
+                  .build());
+         }
       }
 
       // Setting delay to default one if not set.
@@ -142,10 +186,14 @@ public class RestInvocationProcessor {
          delay = ic.operation().getDefaultDelay();
       }
 
+      span.setAttribute("response.delay", delay != null ? delay : 0);
+
       // Check if we need to proxy the request.
       Optional<URI> proxyUrl = MockControllerCommons.getProxyUrlIfProxyIsNeeded(dispatcher, dispatcherRules,
             ic.resourcePath(), proxyFallback, request, response);
       if (proxyUrl.isPresent()) {
+         span.addEvent("proxying_request", Attributes.builder().put("proxy.url", proxyUrl.get().toString()).build());
+
          // Delay response here as the returning content will be returned directly.
          MockControllerCommons.waitForDelay(startTime, delay);
 
@@ -156,14 +204,25 @@ public class RestInvocationProcessor {
          // If we've got a proxyUrl, that's the moment!
          ResponseEntity<byte[]> proxyResponse = proxyService.callExternal(proxyUrl.get(),
                HttpMethod.valueOf(ic.operation().getMethod()), httpHeaders, body);
+
+         span.setAttribute("response.status", proxyResponse.getStatusCode().value());
          return new ResponseResult(proxyResponse.getStatusCode(), proxyResponse.getHeaders(), proxyResponse.getBody());
       }
 
       if (response == null) {
          if (dispatcher == null) {
             response = getOneForOperation(ic, request, response);
+
+            if (response != null) {
+               span.setAttribute("response.found", true);
+               span.addEvent("random_response_found", Attributes.builder().put("response.name", response.getName())
+                     .put("response.media_type", response.getMediaType() != null ? response.getMediaType() : "unknown")
+                     .build());
+            }
          } else {
             // There is a dispatcher, but we found no response => return 400 as per #819 and #1132.
+            span.setStatus(StatusCode.ERROR, "No response found for dispatch criteria");
+            span.setAttribute("response.status", 400);
             return new ResponseResult(HttpStatus.BAD_REQUEST, null,
                   String.format("The response %s does not exist!", dispatchContext.dispatchCriteria()).getBytes());
          }
@@ -172,6 +231,8 @@ public class RestInvocationProcessor {
       if (response != null) {
          HttpStatus status = (response.getStatus() != null ? HttpStatus.valueOf(Integer.parseInt(response.getStatus()))
                : HttpStatus.OK);
+
+         span.setAttribute("response.status", status.value());
 
          // Deal with specific headers (content-type and redirect directive).
          HttpHeaders responseHeaders = getResponseHeaders(ic, body, request, dispatchContext, response);
@@ -182,7 +243,10 @@ public class RestInvocationProcessor {
                responseContent != null ? responseContent.getBytes(StandardCharsets.UTF_8) : null);
       }
 
+      span.setStatus(StatusCode.ERROR, "No response found");
+      span.setAttribute("response.status", 400);
       return new ResponseResult(HttpStatus.BAD_REQUEST, null, null);
+
    }
 
    /** Get the root dispatcher for the invocation context. */
@@ -247,8 +311,10 @@ public class RestInvocationProcessor {
    /** Compute a dispatch context with a dispatchCriteria string from type, rules and request elements. */
    private DispatchContext computeDispatchCriteria(Service service, String dispatcher, String dispatcherRules,
          String uriPattern, String resourcePath, HttpServletRequest request, String body) {
+
       String dispatchCriteria = null;
       Map<String, Object> requestContext = null;
+      Span currentSpan = Span.current();
 
       // Depending on dispatcher, evaluate request with rules.
       if (dispatcher != null) {
@@ -256,6 +322,12 @@ public class RestInvocationProcessor {
             case DispatchStyles.SEQUENCE:
                dispatchCriteria = DispatchCriteriaHelper.extractFromURIPattern(dispatcherRules, uriPattern,
                      resourcePath);
+
+               // Get current span and add result event
+               currentSpan.addEvent("dispatch_criteria_result",
+                     Attributes.builder().put("dispatch.type", "SEQUENCE").put("dispatch.rules", dispatcherRules)
+                           .put("uri.pattern", uriPattern).put("resource.path", resourcePath)
+                           .put("dispatch.result", dispatchCriteria).build());
                break;
             case DispatchStyles.SCRIPT:
                requestContext = new HashMap<>();
@@ -268,40 +340,79 @@ public class RestInvocationProcessor {
                         requestContext, new ServiceStateStore(serviceStateRepository, service.getId()), request,
                         uriParameters);
                   dispatchCriteria = (String) scriptEngine.eval(script, scriptContext);
+
+                  // Get current span and add result event
+                  currentSpan.addEvent("dispatch_criteria_result", Attributes.builder().put("dispatch.type", "SCRIPT")
+                        .put("dispatch.result", dispatchCriteria).build());
                } catch (Exception e) {
+                  // Get current span and record failure
+                  currentSpan.recordException(e);
+                  currentSpan.addEvent("dispatch_criteria_result", Attributes.builder().put("dispatch.type", "SCRIPT")
+                        .put("dispatch.result", "null").put("dispatch.script", dispatcherRules).build());
+                  currentSpan.setStatus(StatusCode.ERROR, "Error during Script evaluation");
                   log.error("Error during Script evaluation", e);
                }
                break;
             case DispatchStyles.URI_PARAMS:
                String fullURI = request.getRequestURL() + "?" + request.getQueryString();
                dispatchCriteria = DispatchCriteriaHelper.extractFromURIParams(dispatcherRules, fullURI);
+
+               currentSpan.addEvent("dispatch_criteria_result",
+                     Attributes.builder().put("dispatch.type", "URI_PARAMS").put("dispatch.rules", dispatcherRules)
+                           .put("full.uri", fullURI).put("dispatch.result", dispatchCriteria).build());
                break;
             case DispatchStyles.URI_PARTS:
                // /tenantId?t1/userId=x
                dispatchCriteria = DispatchCriteriaHelper.extractFromURIPattern(dispatcherRules, uriPattern,
                      resourcePath);
+
+               currentSpan.addEvent("dispatch_criteria_result",
+                     Attributes.builder().put("dispatch.type", "URI_PARTS").put("dispatch.rules", dispatcherRules)
+                           .put("uri.pattern", uriPattern).put("resource.path", resourcePath)
+                           .put("dispatch.result", dispatchCriteria).build());
                break;
             case DispatchStyles.URI_ELEMENTS:
                dispatchCriteria = DispatchCriteriaHelper.extractFromURIPattern(dispatcherRules, uriPattern,
                      resourcePath);
                fullURI = request.getRequestURL() + "?" + request.getQueryString();
                dispatchCriteria += DispatchCriteriaHelper.extractFromURIParams(dispatcherRules, fullURI);
+
+               currentSpan.addEvent("dispatch_criteria_result",
+                     Attributes.builder().put("dispatch.type", "URI_ELEMENTS").put("dispatch.rules", dispatcherRules)
+                           .put("uri.pattern", uriPattern).put("resource.path", resourcePath).put("full.uri", fullURI)
+                           .put("dispatch.result", dispatchCriteria).build());
                break;
             case DispatchStyles.JSON_BODY:
                try {
                   JsonEvaluationSpecification specification = JsonEvaluationSpecification
                         .buildFromJsonString(dispatcherRules);
                   dispatchCriteria = JsonExpressionEvaluator.evaluate(body, specification);
+
+                  // Get current span and add result event
+                  currentSpan.addEvent("dispatch_criteria_result",
+                        Attributes.builder().put("dispatch.type", "JSON_BODY")
+                              .put("json.result", dispatchCriteria != null ? dispatchCriteria : "null").build());
                } catch (JsonMappingException jme) {
+                  // Get current span and record failure
+                  currentSpan.recordException(jme);
+                  currentSpan.addEvent("dispatch_criteria_result", Attributes.builder()
+                        .put("dispatch.type", "JSON_BODY").put("json.error", jme.getMessage()).build());
                   log.error("Dispatching rules of operation cannot be interpreted as JsonEvaluationSpecification", jme);
                }
                break;
             case DispatchStyles.QUERY_HEADER:
                // Extract headers from request and put them into a simple map to reuse extractFromParamMap().
-               dispatchCriteria = DispatchCriteriaHelper.extractFromParamMap(dispatcherRules,
-                     extractRequestHeaders(request));
+               Map<String, String> requestHeaders = extractRequestHeaders(request);
+               dispatchCriteria = DispatchCriteriaHelper.extractFromParamMap(dispatcherRules, requestHeaders);
+
+               currentSpan.addEvent("dispatch_criteria_result",
+                     Attributes.builder().put("dispatch.type", "QUERY_HEADER").put("dispatch.rules", dispatcherRules)
+                           .put("headers.count", requestHeaders.size()).put("dispatch.result", dispatchCriteria)
+                           .build());
                break;
             default:
+               currentSpan.addEvent("dispatch_criteria_result", Attributes.builder().put("dispatch.type", dispatcher)
+                     .put("dispatch.error", "Unknown dispatcher type").put("dispatch.result", "null").build());
                log.error("Unknown dispatcher type: {}", dispatcher);
                break;
          }

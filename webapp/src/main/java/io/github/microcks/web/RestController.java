@@ -29,6 +29,7 @@ import io.github.microcks.util.openapi.OpenAPITestRunner;
 import io.github.microcks.util.openapi.SwaggerSchemaValidator;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.opentelemetry.api.trace.Span;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -256,11 +257,17 @@ public class RestController {
       // Find matching service.
       Service service = serviceRepository.findByNameAndVersion(serviceName, version);
       if (service == null) {
+         Span.current().setStatus(io.opentelemetry.api.trace.StatusCode.ERROR,
+               "No service found for " + serviceAndVersion);
          return new MockInvocationContext(null, null, resourcePath);
       }
 
       // Find matching operation.
       Operation operation = findOperation(service, method, resourcePath);
+      if (operation == null) {
+         Span.current().setStatus(io.opentelemetry.api.trace.StatusCode.ERROR,
+               "No operation found for " + method + " " + resourcePath);
+      }
       return new MockInvocationContext(service, operation, resourcePath);
    }
 
