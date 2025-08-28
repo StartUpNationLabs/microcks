@@ -1,0 +1,16 @@
+<div class="graph-page">
+  <h2 class="mb-2">Graph Demo (ngx-vflow)</h2>
+  <div class="canvas-wrapper">
+  <vflow [nodes]="nodes" [edges]="edges" view="auto" [background]="{ type: 'dots' }">
+        <mini-map [scaleOnHover]="false" />
+         <ng-template let-ctx nodeHtml>
+             <div class="custom-node" [class.kind-app]="ctx.node.data().kind==='app'" [class.kind-service]="ctx.node.data().kind==='service'" [class.kind-operation]="ctx.node.data().kind==='operation'">
+                 {{ ctx.node.data().label }}
+                <handle type="source" position="bottom" />
+                <handle type="target" position="top" />
+            </div>
+        </ng-template>
+        
+    </vflow>
+  </div>
+</div>

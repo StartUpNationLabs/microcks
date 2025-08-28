@@ -1,0 +1,50 @@
+.graph-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.mb-2 { margin-bottom: 0.5rem; }
+
+.canvas-wrapper {
+  position: relative;
+  flex: 1 1 auto;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  /* Avoid 100vh; use a responsive but not full-viewport height */
+  height: 70vh;
+  min-height: 420px;
+}
+
+/* Make sure the flow canvas fills the wrapper */
+.canvas-wrapper vflow {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+
+
+.custom-node {
+  width: 100px;
+  height: 50px;
+  border: 1px solid gray;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-node.kind-app {
+  background: #e8f5e9;
+  border-color: #2e7d32;
+}
+.custom-node.kind-service {
+  background: #e3f2fd;
+  border-color: #1565c0;
+}
+.custom-node.kind-operation {
+  background: #fff3e0;
+  border-color: #ef6c00;
+}

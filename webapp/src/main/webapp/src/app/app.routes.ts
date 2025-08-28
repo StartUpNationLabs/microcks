@@ -14,11 +14,16 @@ import { HubPageComponent } from './pages/hub/hub.page';
 import { HubPackagePageComponent } from './pages/hub/package/package.page';
 import { HubAPIVersionPageComponent } from './pages/hub/package/apiVersion/apiVersion.page';
 import { AdminPageComponent } from './pages/admin/admin.page';
+import { GraphPageComponent } from './pages/graph/graph.page';
 
 export const routes: Routes = [
   {
     path: '',
     component: DashboardPageComponent
+  },
+  {
+    path: 'graph',
+    component: GraphPageComponent
   },
   {
     path: 'services',
