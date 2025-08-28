@@ -23,12 +23,19 @@ export interface TraceGroup {
   endTime?: HrTime;   // last event time
 }
 
+export interface ServiceOverview {
+  serviceName: string;
+  operations: string[];
+  hasError?: boolean; // true if any group under this service hasError
+}
+
 @Injectable({ providedIn: 'root' })
 export class TraceGroupsService {
   private groupsByKey = new Map<string, TraceGroup[]>();
   private subjByKey = new Map<string, BehaviorSubject<TraceGroup[]>>();
   private indexByKey = new Map<string, Map<string, number>>(); // key -> (traceId -> idx)
   private aggregateByService = new Map<string, BehaviorSubject<TraceGroup[]>>();
+  private overviewSubj = new BehaviorSubject<ServiceOverview[]>([]);
 
   // Compose a stable key for service/op pair
   private key(serviceName: string, operationName?: string): string {
@@ -60,6 +67,13 @@ export class TraceGroupsService {
     return subj.asObservable();
   }
 
+  // Observe all services and their operations present in the store
+  selectOverview(): Observable<ServiceOverview[]> {
+    // Push current snapshot immediately
+    this.overviewSubj.next(this.computeOverview());
+    return this.overviewSubj.asObservable();
+  }
+
   getSnapshot(serviceName: string, operationName?: string): TraceGroup[] {
     const k = this.key(serviceName, operationName);
     return (this.groupsByKey.get(k) ?? []).slice();
@@ -71,11 +85,30 @@ export class TraceGroupsService {
     this.indexByKey.set(k, new Map());
     this.subjByKey.get(k)?.next([]);
   this.recomputeAggregate(serviceName);
+  this.recomputeOverview();
   }
 
-  // Append fresh spans to the store for a given service/op
-  upsertSpans(serviceName: string, operationName: string | undefined, spans: ReadableSpan[]): void {
+  // Append fresh spans to the store. Derive service/operation from span attributes.
+  upsertSpans(spans: ReadableSpan[]): void {
     if (!Array.isArray(spans) || spans.length === 0) return;
+
+    // Find service and operation from one of the spans in the batch
+    let serviceName: string | undefined;
+    let operationName: string | undefined;
+    console.log(spans)
+    for (const s of spans) {
+      const svc = this.getAttrString((s as any)?.attributes, 'service.name');
+      const op = this.getAttrString((s as any)?.attributes, 'operation.name');
+      console.log(svc, op)
+      if (!serviceName && svc) serviceName = svc;
+      if (!operationName && op) operationName = op;
+      if (serviceName && operationName) break;
+    }
+    if (!serviceName) {
+      // Cannot group without a service name; ignore this batch.
+      return;
+    }
+
     const k = this.key(serviceName, operationName);
     if (!this.groupsByKey.has(k)) {
       this.groupsByKey.set(k, []);
@@ -146,6 +179,7 @@ export class TraceGroupsService {
     // Emit updated array reference
     this.subjByKey.get(k)!.next(groups);
     this.recomputeAggregate(serviceName);
+    this.recomputeOverview();
   }
 
   // Snapshots/queries
@@ -166,6 +200,28 @@ export class TraceGroupsService {
     if (subj) {
       subj.next(this.getSnapshotForService(serviceName));
     }
+  }
+
+  private recomputeOverview(): void {
+    this.overviewSubj.next(this.computeOverview());
+  }
+
+  private computeOverview(): ServiceOverview[] {
+    const map = new Map<string, { ops: Set<string>; hasError: boolean }>();
+    for (const [k, groups] of this.groupsByKey.entries()) {
+      const [serviceName, op] = k.split('::');
+      const operations = map.get(serviceName) ?? { ops: new Set<string>(), hasError: false };
+      if (op) operations.ops.add(op);
+      if (groups.some(g => !!g.hasError)) operations.hasError = true;
+      map.set(serviceName, operations);
+    }
+    const out: ServiceOverview[] = [];
+    for (const [serviceName, v] of map.entries()) {
+      out.push({ serviceName, operations: Array.from(v.ops).sort(), hasError: v.hasError });
+    }
+    // Sort by service name for stability
+    out.sort((a, b) => a.serviceName.localeCompare(b.serviceName));
+    return out;
   }
 
   // Helpers to compare HrTime
@@ -190,4 +246,13 @@ export class TraceGroupsService {
     if (bn < 0n) return a;
     return an >= bn ? a : b;
   }
+
+  // Helpers to extract attributes
+  private getAttrString(attrs: Attributes | undefined, key: string): string | undefined {
+    const v = (attrs as any)?.[key];
+    if (typeof v === 'string') return v;
+    if (v === undefined || v === null) return undefined;
+    try { return String(v); } catch { return undefined; }
+  }
+
 }

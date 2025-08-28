@@ -1,5 +1,6 @@
 import { Component, Input, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { TraceGroupListComponent } from './trace-group-list/trace-group-list.component';
 import { ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { Attributes, HrTime, SpanStatusCode } from '@opentelemetry/api';
 import { Subscription } from 'rxjs';
@@ -10,7 +11,7 @@ import { TraceGroupsService, TraceGroup } from '../../../../../services/trace-gr
 @Component({
   selector: 'app-live-traces',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, TraceGroupListComponent],
   templateUrl: './live-traces.component.html',
   styleUrls: ['./live-traces.component.css']
 })
@@ -72,8 +73,8 @@ export class LiveTracesComponent implements OnInit, OnDestroy {
           this.spans = [...fresh, ...this.spans];
           if (this.spans.length > this.maxItems) this.spans.length = this.maxItems;
 
-          // Delegate grouped update to service
-          this.traceGroupsService.upsertSpans(this.serviceName, this.operationName, fresh);
+          // Delegate grouped update to service (service/op derived from attributes)
+          this.traceGroupsService.upsertSpans(fresh);
         }
       },
       error: (err: any) => {

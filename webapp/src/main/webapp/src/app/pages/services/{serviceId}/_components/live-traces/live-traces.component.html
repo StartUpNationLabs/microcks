@@ -16,32 +16,5 @@
     <span class="text-danger" *ngIf="error"> | {{ error }}</span>
   </div>
 
-  <div class="traces" *ngIf="traceGroups.length">
-    <div class="trace" *ngFor="let g of traceGroups; trackBy: trackByTrace" [class.error]="g.hasError">
-      <div class="trace-header" (click)="toggleGroup(g)">
-        <span class="caret" [class.open]="g.open"></span>
-        <strong>Trace {{ g.traceId }}</strong>
-        <small *ngIf="g.startTime || g.endTime"> ({{ formatHrTime(g.startTime) }} → {{ formatHrTime(g.endTime) }})</small>
-        <span class="muted"> — {{ g.events.length }} event(s)</span>
-        <span *ngIf="g.hasError && g.errorMessage" class="text-danger"> — {{ g.errorMessage }}</span>
-      </div>
-      <div class="trace-body" *ngIf="g.open">
-        <ul class="events">
-      <li class="event" *ngFor="let e of g.events; trackBy: trackByEvent">
-            <div class="event-line">
-              <code class="evt-time">{{ formatHrTime(e.time) }}</code>
-        <span class="evt-name">{{ getEventTitle(e) }}</span>
-              <span class="evt-span">in <code>{{ e.spanId }}</code> • {{ e.spanName }}</span>
-            </div>
-            <ul class="kv" *ngIf="hasNonMessageAttributes(e.attributes)">
-              <li *ngFor="let kv of (e.attributes | keyvalue)" [hidden]="kv.key === 'message'">
-                <span class="k">{{ kv.key }}</span>
-                <span class="v">{{ kv.value | json }}</span>
-              </li>
-            </ul>
-          </li>
-        </ul>
-      </div>
-    </div>
-  </div>
+  <app-trace-group-list [traceGroups]="traceGroups" />
 </div>
