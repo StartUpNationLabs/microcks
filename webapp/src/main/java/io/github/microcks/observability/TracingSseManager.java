@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -35,7 +34,11 @@ public class TracingSseManager {
 
    private final SpanStorageService spanStorageService;
 
-   // SSE subscriptions keyed by service+operation to avoid O(N) scans on each event
+   // SSE subscriptions keyed by service+operation to avoid O(N) scans on each event.
+   // Conventions:
+   // - Empty serviceName ("") matches any service for the given operation
+   // - Empty operationName ("") matches any operation for the given service
+   // - Both empty ("", "") matches any service and any operation (global)
    private final Map<ServiceOperationKey, CopyOnWriteArrayList<Subscription>> subscriptions = new ConcurrentHashMap<>();
 
    // Heartbeat scheduler to keep connections alive
@@ -80,14 +83,35 @@ public class TracingSseManager {
 
       Set<ServiceOperationKey> keysInTrace = extractKeysFromSpans(spansByTraceId);
 
+      // Collect unique recipients so we don't send duplicates when multiple services/operations overlap.
+      Set<Subscription> recipients = new HashSet<>();
       for (ServiceOperationKey key : keysInTrace) {
+         // Exact match
          CopyOnWriteArrayList<Subscription> list = subscriptions.get(key);
-         if (list == null || list.isEmpty()) {
-            continue;
+         if (list != null && !list.isEmpty()) {
+            recipients.addAll(list);
          }
-         for (Subscription sub : list) {
-            sub.sendTrace(spansByTraceId);
+         // Wildcard serviceName match: "" matches any service for this operation
+         ServiceOperationKey wildcardKey = new ServiceOperationKey("", key.operationName());
+         CopyOnWriteArrayList<Subscription> wildcardList = subscriptions.get(wildcardKey);
+         if (wildcardList != null && !wildcardList.isEmpty()) {
+            recipients.addAll(wildcardList);
          }
+         // Wildcard operationName match: "" matches any operation for this service
+         ServiceOperationKey wildcardOpKey = new ServiceOperationKey(key.serviceName(), "");
+         CopyOnWriteArrayList<Subscription> wildcardOpList = subscriptions.get(wildcardOpKey);
+         if (wildcardOpList != null && !wildcardOpList.isEmpty()) {
+            recipients.addAll(wildcardOpList);
+         }
+         // Global wildcard: ("", "") matches any service and any operation
+         CopyOnWriteArrayList<Subscription> globalList = subscriptions.get(new ServiceOperationKey("", ""));
+         if (globalList != null && !globalList.isEmpty()) {
+            recipients.addAll(globalList);
+         }
+      }
+
+      for (Subscription sub : recipients) {
+         sub.sendTrace(spansByTraceId);
       }
    }
 
