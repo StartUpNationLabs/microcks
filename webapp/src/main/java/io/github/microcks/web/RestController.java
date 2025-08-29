@@ -237,8 +237,8 @@ public class RestController {
 
       String violationMsg = validateParameterConstraintsIfAny(ic.operation(), request);
       if (violationMsg != null) {
-         span.addEvent("parameter.constraint.violation", Attributes.of(AttributeKey.stringKey("message"),
-               violationMsg));
+         span.addEvent("parameter.constraint.violation",
+               Attributes.of(AttributeKey.stringKey("message"), violationMsg));
          span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR, "Parameter constraint violation");
          span.setAttribute("http.status_code", 400);
          return new ResponseEntity<>((violationMsg + ". Check parameter constraints.").getBytes(),
