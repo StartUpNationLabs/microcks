@@ -150,7 +150,7 @@ export class GraphPageComponent implements OnInit, OnDestroy {
     root.links().forEach((lnk) => {
       const sid = (lnk.source.data as any).id as string;
       const tid = (lnk.target.data as any).id as string;
-      edges.push({ id: `${sid}->${tid}`, source: sid, target: tid });
+      edges.push({ id: `${sid}->${tid}`, source: sid, target: tid , type: 'template'});
     });
 
     return { nodes, edges };

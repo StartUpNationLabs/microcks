@@ -2,15 +2,17 @@
   <h2 class="mb-2">Microcks Calls Visualization</h2>
   <div class="canvas-wrapper">
   <vflow [nodes]="nodes" [edges]="edges" view="auto" [background]="{ type: 'dots' }">
-        <mini-map [scaleOnHover]="false" />
-         <ng-template let-ctx nodeHtml>
-             <div class="custom-node" [class.kind-app]="ctx.node.data().kind==='app'" [class.kind-service]="ctx.node.data().kind==='service'" [class.kind-operation]="ctx.node.data().kind==='operation'">
-                 {{ ctx.node.data().label }}
-                <handle type="source" position="bottom" />
-                <handle type="target" position="top" />
-            </div>
-        </ng-template>
-        
+      <ng-template let-ctx edge>
+        <svg:path
+          class="animated-edge"
+          fill="none"
+          [attr.d]="ctx.path()"
+          [attr.stroke-width]="2"
+          [attr.stroke]="'#444'"
+          [attr.marker-end]="ctx.markerEnd()" />
+      </ng-template>
+
+      <mini-map [scaleOnHover]="false" />
     </vflow>
   </div>
 </div>
