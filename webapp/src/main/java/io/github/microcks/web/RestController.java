@@ -22,6 +22,7 @@ import io.github.microcks.domain.ResourceType;
 import io.github.microcks.domain.Service;
 import io.github.microcks.repository.ResourceRepository;
 import io.github.microcks.repository.ServiceRepository;
+import io.github.microcks.util.IdBuilder;
 import io.github.microcks.util.ParameterConstraintUtil;
 import io.github.microcks.util.SafeLogger;
 import io.github.microcks.util.openapi.OpenAPISchemaValidator;
@@ -234,7 +235,25 @@ public class RestController {
          String body, HttpHeaders headers, HttpServletRequest request, HttpMethod method) {
       Span span = Span.current();
       span.setAttribute("explain-trace", true);
-
+      span.setAttribute("service.name", ic.service().getName());
+      span.setAttribute("service.version", ic.service().getVersion());
+      span.setAttribute("operation.name", ic.operation().getName());
+      span.setAttribute("operation.method", ic.operation().getMethod());
+      span.setAttribute("operation.id", IdBuilder.buildOperationId(ic.service(), ic.operation()));
+      // Add an event for the invocation reception with a human-friendly message.
+      span.addEvent("invocation_received",
+            Attributes.builder()
+                  .put("message",
+                        String.format("Received REST invocation %s %s", ic.operation().getMethod(), ic.resourcePath()))
+                  .put("http.method", request.getMethod())
+                  .put("query.string", request.getQueryString() != null ? request.getQueryString() : "empty")
+                  .put("body.length", body != null ? body.length() : 0)
+                  .put("body.content",
+                        body != null ? (body.length() > 1000 ? body.substring(0, 1000) + "..." : body) : "empty")
+                  .put("uri.full",
+                        request.getRequestURL().toString()
+                              + (request.getQueryString() != null ? "?" + request.getQueryString() : ""))
+                  .put("client.address", request.getRemoteAddr()).build());
       String violationMsg = validateParameterConstraintsIfAny(ic.operation(), request);
       if (violationMsg != null) {
          span.addEvent("parameter.constraint.violation",

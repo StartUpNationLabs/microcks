@@ -144,28 +144,7 @@ public class RestInvocationProcessor {
          Map<String, List<String>> headers, HttpServletRequest request) {
 
       Span span = Span.current();
-
-      span.setAttribute("service.name", ic.service().getName());
-      span.setAttribute("service.version", ic.service().getVersion());
-      span.setAttribute("operation.name", ic.operation().getName());
-      span.setAttribute("operation.method", ic.operation().getMethod());
-      span.setAttribute("operation.id", IdBuilder.buildOperationId(ic.service(), ic.operation()));
       span.setAttribute("explain-trace", true);
-
-      // Add an event for the invocation reception with a human-friendly message.
-      span.addEvent("invocation_received",
-            Attributes.builder()
-                  .put("message",
-                        String.format("Received REST invocation %s %s", ic.operation().getMethod(), ic.resourcePath()))
-                  .put("http.method", ic.operation().getMethod()).put("resource.path", ic.resourcePath())
-                  .put("query.string", request.getQueryString() != null ? request.getQueryString() : "empty")
-                  .put("body.length", body != null ? body.length() : 0)
-                  .put("body.content",
-                        body != null ? (body.length() > 1000 ? body.substring(0, 1000) + "..." : body) : "empty")
-                  .put("uri.full",
-                        request.getRequestURL().toString()
-                              + (request.getQueryString() != null ? "?" + request.getQueryString() : ""))
-                  .put("client.address", request.getRemoteAddr()).build());
 
 
       // We must find dispatcher and its rules. Default to operation ones but
