@@ -29,6 +29,8 @@ import io.github.microcks.util.openapi.OpenAPITestRunner;
 import io.github.microcks.util.openapi.SwaggerSchemaValidator;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -230,10 +232,15 @@ public class RestController {
    /** Process REST mock invocation. */
    private ResponseEntity<byte[]> processMockInvocationRequest(MockInvocationContext ic, long startTime, Long delay,
          String body, HttpHeaders headers, HttpServletRequest request, HttpMethod method) {
-      Span.current().setAttribute("explain-trace", true);
+      Span span = Span.current();
+      span.setAttribute("explain-trace", true);
 
       String violationMsg = validateParameterConstraintsIfAny(ic.operation(), request);
       if (violationMsg != null) {
+         span.addEvent("parameter.constraint.violation", Attributes.of(AttributeKey.stringKey("message"),
+               violationMsg));
+         span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR, "Parameter constraint violation");
+         span.setAttribute("http.status_code", 400);
          return new ResponseEntity<>((violationMsg + ". Check parameter constraints.").getBytes(),
                HttpStatus.BAD_REQUEST);
       }

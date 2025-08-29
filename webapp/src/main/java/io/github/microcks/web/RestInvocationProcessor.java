@@ -197,9 +197,6 @@ public class RestInvocationProcessor {
                      .build());
       } else {
          span.setAttribute("response.found", false);
-         span.addEvent("response_not_found",
-               Attributes.builder().put("message", "No response matched initial dispatch criteria")
-                     .put("operation.id", IdBuilder.buildOperationId(ic.service(), ic.operation())).build());
       }
 
       if (response == null && fallback != null) {
