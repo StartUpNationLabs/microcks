@@ -36,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * Service for storing and retrieving OpenTelemetry spans organized by trace ID. This service provides thread-safe
  * storage with memory management to prevent memory leaks.
  *
- * @author GitHub Copilot
  */
 @Service
 public class SpanStorageService {

@@ -38,7 +38,6 @@ import java.util.UUID;
  * REST controller for accessing trace and span information stored by the SpanStorageService. Provides endpoints to
  * retrieve traces, spans, and storage statistics.
  *
- * @author GitHub Copilot
  */
 @RestController
 @RequestMapping("/api/traces")

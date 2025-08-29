@@ -37,7 +37,6 @@ import io.opentelemetry.sdk.trace.SpanProcessor;
  * A custom SpanProcessor that delegates span storage to SpanStorageService. This processor filters and forwards
  * relevant spans to the storage service for collection and retrieval.
  *
- * @author GitHub Copilot
  */
 @Component
 public class CustomExplainTraceProcessor implements SpanProcessor {

@@ -22,7 +22,7 @@ import org.springframework.context.ApplicationEvent;
  * Event raised when a new span is stored in the SpanStorageService. This event can be used by other components to react
  * to new span data in real-time.
  *
- * @author GitHub Copilot
+
  */
 public class SpanStoredEvent extends ApplicationEvent {
 
