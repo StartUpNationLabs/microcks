@@ -23,7 +23,7 @@ export interface OperationNode {
   styles: [
     `
       .operation-node {
-        width: 320px;
+        width: 920px;
         max-height: 380px;
         border: 1px solid #ccc;
         border-radius: 8px;
