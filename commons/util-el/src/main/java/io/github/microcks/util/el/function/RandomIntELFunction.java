@@ -37,6 +37,7 @@ public class RandomIntELFunction extends AbstractRandomELFunction {
                } catch (NumberFormatException nfe) {
                   // Ignore, we'll stick to integer max value.
                }
+               // 0 (inclusive) to maxValue (exclusive)
                return String.valueOf(getRandom().nextInt(maxValue));
             case 2:
                int minValue = 0;
@@ -46,6 +47,40 @@ public class RandomIntELFunction extends AbstractRandomELFunction {
                   maxValue = Integer.parseInt(args[1]);
                } catch (NumberFormatException nfe) {
                   // Ignore, we'll stick to the defaults.
+               }
+               if (maxValue < minValue) {
+                  int tmp = maxValue; maxValue = minValue; minValue = tmp;
+               }
+               if (maxValue == minValue) {
+                  return String.valueOf(minValue);
+               }
+               return String.valueOf(getRandom().nextInt(maxValue - minValue) + minValue);
+            case 3:
+               // min, max, inclusiveUpper(boolean)
+               minValue = 0;
+               maxValue = Integer.MAX_VALUE;
+               boolean inclusiveUpper = false;
+               try {
+                  minValue = Integer.parseInt(args[0]);
+                  maxValue = Integer.parseInt(args[1]);
+               } catch (NumberFormatException nfe) {
+                  // keep defaults
+               }
+               try {
+                  inclusiveUpper = Boolean.parseBoolean(args[2]);
+               } catch (Exception ignored) {}
+               if (maxValue < minValue) {
+                  int tmp = maxValue; maxValue = minValue; minValue = tmp;
+               }
+               if (inclusiveUpper) {
+                  if (maxValue == Integer.MAX_VALUE) {
+                     // avoid overflow when adding 1
+                     return String.valueOf(getRandom().nextInt(Integer.MAX_VALUE - minValue) + minValue);
+                  }
+                  maxValue = maxValue + 1;
+               }
+               if (maxValue == minValue) {
+                  return String.valueOf(minValue);
                }
                return String.valueOf(getRandom().nextInt(maxValue - minValue) + minValue);
             default:

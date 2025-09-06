@@ -39,6 +39,9 @@ public class TemplateEngineFactory {
       engine.getContext().registerFunction("randomInt", RandomIntELFunction.class);
       engine.getContext().registerFunction("randomString", RandomStringELFunction.class);
       engine.getContext().registerFunction("randomBoolean", RandomBooleanELFunction.class);
+      engine.getContext().registerFunction("randomIpv4", RandomIpELFunction.class);
+      engine.getContext().registerFunction("randomUrl", RandomUrlELFunction.class);
+      engine.getContext().registerFunction("randomDouble", RandomDoubleELFunction.class);
       engine.getContext().registerFunction("randomValue", RandomValueELFunction.class);
 
       engine.getContext().registerFunction("randomFirstName", RandomFirstNameELFunction.class);
@@ -59,6 +62,10 @@ public class TemplateEngineFactory {
       engine.getContext().registerFunction("randomEmail", RandomEmailELFunction.class);
 
       engine.getContext().registerFunction("put", PutInContextELFunction.class);
+
+      // Additional generators
+      engine.getContext().registerFunction("generex", GenerexELFunction.class);
+
 
       return engine;
    }

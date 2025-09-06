@@ -166,8 +166,8 @@ public class ExpressionParser {
     * Depending on expression string, try to guess if it's a Literal, a Function or a VariableReference expression.
     */
    private static Expression doParseSimpleExpression(String expressionString, EvaluationContext context) {
-      int argsStart = expressionString.indexOf('(');
-      int argsEnd = expressionString.indexOf(')');
+   int argsStart = expressionString.indexOf('(');
+   int argsEnd = findArgsEnd(expressionString, argsStart);
       int variableStart = expressionString.indexOf('.');
 
       boolean hasVariable = variableStart != -1;
@@ -224,7 +224,9 @@ public class ExpressionParser {
          String argsString = expressionString.substring(argsStart + 1, argsEnd);
          // Parse arguments if non empty string.
          if (!argsString.isEmpty()) {
-            args = Arrays.stream(argsString.split(",")).map(String::trim).toArray(String[]::new);
+            String[] rawArgs = parseArgs(argsString);
+            // Unquote single-quoted args (and unescape quotes)
+            args = Arrays.stream(rawArgs).map(ExpressionParser::unquote).toArray(String[]::new);
          }
       }
 
@@ -240,5 +242,84 @@ public class ExpressionParser {
       }
       // Fallback on empty literal expression.
       return new LiteralExpression("");
+   }
+
+   /** Find the index of the closing parenthesis matching the function call, skipping any that appear within quotes. */
+   private static int findArgsEnd(String expressionString, int argsStart) {
+      if (argsStart < 0) {
+         return -1;
+      }
+      boolean inQuote = false;
+      int depth = 0;
+      for (int i = argsStart; i < expressionString.length(); i++) {
+         char c = expressionString.charAt(i);
+         if (c == '\'' ) {
+            inQuote = !inQuote;
+         }
+         if (inQuote) {
+            continue;
+         }
+         if (c == '(') {
+            depth++;
+            continue;
+         }
+         if (c == ')') {
+            depth--;
+            if (depth == 0) {
+               return i;
+            }
+         }
+      }
+      return -1;
+   }
+
+   /** Parse a comma-separated list of arguments while respecting single quotes. */
+   private static String[] parseArgs(String argsString) {
+      List<String> args = new ArrayList<>();
+      StringBuilder current = new StringBuilder();
+      boolean inQuote = false;
+      boolean escape = false;
+      for (int i = 0; i < argsString.length(); i++) {
+         char c = argsString.charAt(i);
+         if (escape) {
+            current.append(c);
+            escape = false;
+            continue;
+         }
+         if (c == '\\') {
+            // keep escape for next char
+            current.append(c);
+            escape = false; // do not toggle; we want to preserve backslash as part of arg
+            continue;
+         }
+         if (c == '\'') {
+            inQuote = !inQuote;
+            current.append(c);
+            continue;
+         }
+         if (c == ',' && !inQuote) {
+            args.add(current.toString().trim());
+            current.setLength(0);
+         } else {
+            current.append(c);
+         }
+      }
+      if (!current.isEmpty()) {
+         args.add(current.toString().trim());
+      }
+      return args.toArray(new String[0]);
+   }
+
+   /** Remove surrounding single quotes if present and unescape common sequences. */
+   private static String unquote(String value) {
+      if (value == null)
+         return null;
+      String s = value.trim();
+      if (s.length() >= 2 && s.startsWith("'") && s.endsWith("'")) {
+         s = s.substring(1, s.length() - 1);
+      }
+      // Unescape simple escaped single quotes \'
+      s = s.replace("\\'", "'");
+      return s;
    }
 }

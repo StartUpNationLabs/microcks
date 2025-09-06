@@ -33,14 +33,39 @@ public class RandomStringELFunction extends AbstractRandomELFunction {
 
    @Override
    public String evaluate(EvaluationContext evaluationContext, String... args) {
-      if (args != null && args.length == 1) {
-         int maxLength = DEFAULT_LENGTH;
-         try {
-            maxLength = Integer.parseInt(args[0]);
-         } catch (NumberFormatException nfe) {
-            // Ignore, we'll stick to the default.
+      if (args != null) {
+         if (args.length == 1) {
+            int length = DEFAULT_LENGTH;
+            try {
+               length = Integer.parseInt(args[0]);
+            } catch (NumberFormatException nfe) {
+               // Ignore, we'll stick to the default.
+            }
+            if (length < 0) {
+               length = 0;
+            }
+            return generateString(getRandom(), length);
+         } else if (args.length == 2) {
+            int minLength = 0;
+            int maxLength = DEFAULT_LENGTH;
+            try {
+               minLength = Integer.parseInt(args[0]);
+               maxLength = Integer.parseInt(args[1]);
+            } catch (NumberFormatException nfe) {
+               // Ignore parse errors and keep defaults.
+            }
+            if (minLength < 0) minLength = 0;
+            if (maxLength < 0) maxLength = 0;
+            if (maxLength < minLength) {
+               int tmp = maxLength; maxLength = minLength; minLength = tmp;
+            }
+            if (maxLength == minLength) {
+               return generateString(getRandom(), minLength);
+            }
+            // Choose a random length in [minLength, maxLength]
+            int chosen = getRandom().nextInt((maxLength - minLength) + 1) + minLength;
+            return generateString(getRandom(), chosen);
          }
-         return generateString(getRandom(), maxLength);
       }
       return generateString(getRandom(), DEFAULT_LENGTH);
    }

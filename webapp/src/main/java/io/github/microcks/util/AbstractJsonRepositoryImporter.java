@@ -239,6 +239,38 @@ public abstract class AbstractJsonRepositoryImporter {
       return referencableNode;
    }
 
+   protected void resolveJsonNode(JsonNode node) {
+      // iterate over all fields of the node and resolve any $ref
+      if (node.getNodeType() == JsonNodeType.OBJECT) {
+         Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+         while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            JsonNode childNode = field.getValue();
+            if (childNode.getNodeType() == JsonNodeType.OBJECT) {
+               if (childNode.has("$ref")) {
+                  String ref = childNode.path("$ref").asText();
+                  JsonNode resolvedNode = getNodeForRef(ref);
+                  if (resolvedNode != null && !resolvedNode.isMissingNode()) {
+                     ((com.fasterxml.jackson.databind.node.ObjectNode) node).set(field.getKey(), resolvedNode);
+                  } else {
+                     log.warn("Could not resolve reference: {}", ref);
+                  }
+               } else {
+                  resolveJsonNode(childNode);
+               }
+            } else if (childNode.getNodeType() == JsonNodeType.ARRAY) {
+               for (JsonNode arrayItem : childNode) {
+                  resolveJsonNode(arrayItem);
+               }
+            }
+         }
+      } else if (node.getNodeType() == JsonNodeType.ARRAY) {
+         for (JsonNode arrayItem : node) {
+            resolveJsonNode(arrayItem);
+         }
+      }
+   }
+
    /** Get the string representation of a node in spec. */
    protected String getValueString(JsonNode valueNode) {
       // Get string representation if array or object.

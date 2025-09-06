@@ -18,6 +18,7 @@ package io.github.microcks.util.el.function;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * This is a test case for RandomStringELFunction class.
@@ -41,5 +42,24 @@ class RandomStringELFunctionTest {
       String result = function.evaluate(null, "64");
 
       assertEquals(64, result.length());
+   }
+
+   @Test
+   void testMinMaxLengthEvaluation() {
+      RandomStringELFunction function = new RandomStringELFunction();
+      String result = function.evaluate(null, "5", "10");
+      assertTrue(result.length() >= 5 && result.length() <= 10);
+   }
+
+   @Test
+   void testMinMaxSwapAndEquality() {
+      RandomStringELFunction function = new RandomStringELFunction();
+      // swapped bounds should be handled
+      String swapped = function.evaluate(null, "10", "5");
+      assertTrue(swapped.length() >= 5 && swapped.length() <= 10);
+
+      // equal bounds should produce fixed length
+      String fixed = function.evaluate(null, "7", "7");
+      assertEquals(7, fixed.length());
    }
 }

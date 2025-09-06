@@ -19,7 +19,6 @@ import io.github.microcks.util.el.EvaluationContext;
 
 /**
  * Implementation of ELFunction that generates a random boolean.
- * @author laurent
  */
 public class RandomBooleanELFunction extends AbstractRandomELFunction {
 

@@ -181,7 +181,12 @@
         <version>${quickjs4j.version}</version>
         <scope>compile</scope>
     </dependency>
-
+    <!-- Generex for generating strings from regular expressions -->
+    <dependency>
+      <groupId>com.github.mifmif</groupId>
+      <artifactId>generex</artifactId>
+      <version>1.0.2</version>
+    </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
       <artifactId>grpc-netty-shaded</artifactId>
@@ -291,14 +296,23 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.1</version>
+        <version>3.11.0</version>
         <configuration>
           <source>${java.version}</source>
           <target>${java.version}</target>
           <encoding>${project.build.sourceEncoding}</encoding>
-          <compilerArgument>-Xlint:deprecation</compilerArgument>
-          <compilerArgument>-Xlint:unchecked</compilerArgument>
-          <compilerArgument>-parameters</compilerArgument>
+          <compilerArgs>
+            <arg>-Xlint:deprecation</arg>
+            <arg>-Xlint:unchecked</arg>
+            <arg>-parameters</arg>
+          </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>io.roastedroot</groupId>
+              <artifactId>quickjs4j-processor</artifactId>
+              <version>${quickjs4j.version}</version>
+            </path>
+          </annotationProcessorPaths>
         </configuration>
       </plugin>
       <plugin>

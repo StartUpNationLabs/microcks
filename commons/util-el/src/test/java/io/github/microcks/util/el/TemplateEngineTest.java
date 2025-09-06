@@ -83,6 +83,15 @@ class TemplateEngineTest {
    }
 
    @Test
+   void testGenerexFunction() {
+      TemplateEngine engine = TemplateEngineFactory.getTemplateEngine();
+      String result = engine.getValue("{{ generex('^[A-Z]{2}[0-9]{3}$') }}");
+      assertTrue(result.matches("^[A-Z]{2}[0-9]{3}$"));
+   }
+
+   // Album function intentionally removed. Keep Generex-only coverage.
+
+   @Test
    void testXMLWithAttributeTemplate() {
       // Execute simple template calling now() and request.body function.
       EvaluableRequest request = new EvaluableRequest("<request><name firstname=\"Laurent\"/></request>", null);

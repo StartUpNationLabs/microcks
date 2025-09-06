@@ -37,6 +37,7 @@ import io.github.microcks.util.MockRepositoryImportException;
 import io.github.microcks.util.MockRepositoryImporter;
 import io.github.microcks.util.ReferenceResolver;
 import io.github.microcks.util.URIBuilder;
+import io.github.microcks.util.el.JsonSchemaTemplateGenerator;
 import io.github.microcks.util.metadata.MetadataExtensions;
 import io.github.microcks.util.metadata.MetadataExtractor;
 
@@ -452,6 +453,27 @@ public class OpenAPIImporter extends AbstractJsonRepositoryImporter implements M
       Map<String, List<Header>> headersByExample = extractHeadersByExample(responseCode.getValue());
 
       JsonNode examplesNode = followRefIfAny(content.getValue().path(EXAMPLES_NODE));
+
+      JsonNode schemaNode = followRefIfAny(content.getValue().path("schema"));
+      if (examplesNode.isMissingNode() && !schemaNode.isMissingNode()) {
+         // No examples but a schema example, let's create a virtual example here.
+         log.info(
+               "No example found for response code {} and content-type {}, but a schema is defined. "
+                     + "Let's create a virtual example named 'default' from schema example if any.",
+               responseCode.getKey(), contentValue);
+         // if there are refs in schema, resolve them.
+         resolveJsonNode(schemaNode);
+
+        String generatedTemplate = new JsonSchemaTemplateGenerator().generate(schemaNode).asText();
+         if (generatedTemplate != null && !generatedTemplate.isBlank()) {
+            ObjectNode virtualExample = objectMapper.createObjectNode();
+            virtualExample.set("value", objectMapper.readTree(generatedTemplate));
+            examplesNode = objectMapper.createObjectNode();
+            ((ObjectNode) examplesNode).set("default", virtualExample);
+         }
+
+
+      }
 
       Iterator<String> exampleNames = examplesNode.fieldNames();
       while (exampleNames.hasNext()) {

@@ -50,6 +50,13 @@
       <version>${datafaker.version}</version>
     </dependency>
 
+    <!-- Generex for regex-based string generation -->
+    <dependency>
+      <groupId>com.github.mifmif</groupId>
+      <artifactId>generex</artifactId>
+      <version>1.0.2</version>
+    </dependency>
+
     <!-- Test related dependencies -->
     <dependency>
       <groupId>io.github.microcks</groupId>
