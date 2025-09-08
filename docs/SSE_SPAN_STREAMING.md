@@ -44,6 +44,68 @@ The implementation uses Spring's event system instead of polling:
 - Modified to publish `SpanStoredEvent` when storing spans
 - Uses `ApplicationEventPublisher` for event publishing
 
+## Component Architecture Overview
+
+The following diagram shows the static component relationships and primary data/event flows involved in the `explain-trace` and SSE streaming feature.
+
+```mermaid
+flowchart LR
+    subgraph A[Mock Invocation Path]
+      HTTPClient[Client\n(REST caller)] --> RC[RestController]
+      RC --> RIP[RestInvocationProcessor]
+      RIP --> OTel[OpenTelemetry SDK\n(auto & manual spans)]
+    end
+
+    OTel --> CP[CustomExplainTraceProcessor\n(SpanProcessor)]
+    CP -->|store spans with attribute `explain-trace`| SS[SpanStorageService\n(in-memory, capped)]
+    SS -->|root span end -> publish| EB[(Spring Event Bus)\nSpanStoredEvent]
+    EB --> SSEMgr[TracingSseManager\n(subscription registry)]
+    SSEMgr -->|SSE event name: `trace`\narray<SpanData>| SSEClient[Client\n(SSE subscriber)]
+
+    SSEClient -->|optional REST lookup| RC
+    SS -. capacity policy .- SS
+
+    classDef comp fill:#0d5aa7,stroke:#0b437c,stroke-width:1,color:#fff;
+    classDef store fill:#136f63,stroke:#0b5249,stroke-width:1,color:#fff;
+    classDef event fill:#8a2be2,stroke:#5d1d99,stroke-width:1,color:#fff;
+    class RC,RIP,CP,SSEMgr comp;
+    class SS store;
+    class EB event;
+```
+
+### Responsibilities
+| Component | Role |
+|-----------|------|
+| RestController | Tags top-level span, resolves service/operation, invokes processing, exposes REST retrieval endpoints |
+| RestInvocationProcessor | Creates child/internal spans, adds detailed events & attributes, dispatch logic |
+| OpenTelemetry SDK | Lifecycle & context for spans, invokes registered SpanProcessor(s) on end |
+| CustomExplainTraceProcessor | Filters finished spans for presence of `explain-trace` attribute and forwards them for storage |
+| SpanStorageService | In-memory retention (1000 traces / 100 spans per trace), publishes event on root span arrival |
+| Spring Event Bus | Asynchronous decoupling of storage from streaming layer via `SpanStoredEvent` |
+| TracingSseManager | Manages subscriptions (serviceName+operationName keys), pushes full trace snapshot upon root span completion, heartbeat maintenance |
+| SSE Client | Receives `trace` events (array of SpanData), may also query REST endpoints for historical retrieval |
+
+### Data / Control Flow Highlights
+1. REST request produces server span; components tag it (`explain-trace=true`).
+2. Internal logic creates additional spans (also tagged) with rich events.
+3. On span end, processor inspects attributes; qualifying spans added to per-trace buffer.
+4. First root span end for a trace (or finalization) triggers `SpanStoredEvent` → streaming notification.
+5. SSE manager fetches entire trace snapshot (current spans list) and emits one `trace` event (atomic view).
+6. Capacity enforcement silently evicts oldest traces/spans; clients wanting durability must export early.
+
+### Extension Points
+* Add incremental per-span push: emit events earlier (before root completion) for near real-time partial views.
+* Persist traces (e.g., to a time-series DB) on eviction or asynchronously for long-term analytics.
+* Enhance filtering: allow attribute-based subscription patterns (wildcards / regex) beyond service & operation.
+* Security: introduce auth guard on `/api/traces/**` + SSE endpoint (e.g., token or API key).
+
+### Operational Considerations
+* Memory Footprint: O(traces * spansPerTrace) bounded by configuration constants; adjust if higher concurrency needed.
+* Backpressure: Current design sends full trace array each time; for very large traces consider delta or pagination.
+* Ordering: Spans in emitted array reflect insertion order; consumers may sort by start/end timestamps for visualization.
+* Idempotence: Re-emission currently occurs only once per trace (root span trigger). If replays are needed, persist and add `replay` mode.
+
+
 ## Usage Example
 
 ### JavaScript Client
@@ -51,17 +113,21 @@ The implementation uses Spring's event system instead of polling:
 ```javascript
 const eventSource = new EventSource('/api/traces/operations/spans/stream?serviceName=my-service&operationName=my-operation');
 
-eventSource.addEventListener('span', function(event) {
-    const spanData = JSON.parse(event.data);
-    console.log('New span received:', spanData);
+// Server emits events named "trace" that contain an array of SpanData for the full trace.
+eventSource.addEventListener('trace', function(event) {
+  const spans = JSON.parse(event.data); // spans is an array
+  console.log('Trace update with', spans.length, 'spans');
+});
+
+eventSource.addEventListener('heartbeat', () => {
+  // Optional: keep-alive signal
 });
 
 eventSource.addEventListener('error', function(event) {
-    console.error('SSE error:', event);
+  console.error('SSE error:', event);
 });
 
-// Close the connection when done
-// eventSource.close();
+// To close later: eventSource.close();
 ```
 
 ### curl Example
@@ -93,7 +159,66 @@ The SSE connections have a 30-minute timeout by default. This can be adjusted in
 | Aspect | Original `/operations/spans` | New `/operations/spans/stream` |
 |--------|------------------------------|--------------------------------|
 | Method | Request/Response | Server-Sent Events |
-| Data | All historical spans | New spans only (real-time) |
-| Updates | Manual refresh required | Automatic push |
-| Resource Usage | High (repeated queries) | Low (event-driven) |
-| Use Case | One-time data retrieval | Real-time monitoring |
+| Data | All historical spans (batched) | Newly completed traces (root span ended) |
+| Updates | Manual refresh required | Automatic push (event name: `trace`) |
+| Resource Usage | Higher (repeated queries) | Lower (event-driven) |
+| Use Case | One-time / retrospective analysis | Real-time monitoring & live explain view |
+
+## Mermaid Sequence Diagram
+
+The diagram below summarizes the lifecycle of an `explain-trace` flow from incoming HTTP request to client streaming:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client (HTTP)
+  participant RC as RestController
+  participant RIP as RestInvocationProcessor
+  participant CDC as computeDispatchCriteria (child span)
+  participant OTel as OpenTelemetry SDK
+  participant P as CustomExplainTraceProcessor
+  participant S as SpanStorageService
+  participant E as Spring Event Bus
+  participant SSE as TracingSseManager
+  participant SC as Client (SSE)
+
+  C->>RC: REST request /rest/{service}/{version}/...
+  RC->>RC: Tag current span (explain-trace=true,<br/>service/operation attrs)
+  RC->>RIP: processInvocation()
+  RIP->>CDC: create INTERNAL span (explain-trace=true)
+  CDC-->>RIP: dispatch criteria + events
+  RIP-->>RC: ResponseResult (mock/proxy)
+  RC-->>C: HTTP response
+
+  note over RC,RIP: Spans finish after logic completes
+  RC-->>OTel: End server span
+  RIP-->>OTel: End internal spans
+  CDC-->>OTel: End child span
+
+  OTel-->>P: onEnd(span)
+  alt span has attribute explain-trace
+    P->>S: storeSpan(span)
+    opt span is root (no parent)
+      S->>E: publish SpanStoredEvent(traceId)
+      E->>SSE: handle event (async)
+      SSE->>S: getSpansForTrace(traceId)
+      SSE-->>SC: SSE event "trace" with array<SpanData>
+    end
+  end
+
+  SC->>RC: (optional) GET /api/traces/{traceId}/spans
+  RC->>S: getSpansForTrace(traceId)
+  S-->>RC: spans
+  RC-->>SC: JSON list of SpanData
+```
+
+### Key Points Visualized
+* All relevant spans explicitly get `explain-trace=true`.
+* Only root span completion triggers a `SpanStoredEvent` → one SSE push per completed trace.
+* Streaming event name is `trace` (array of spans), not individual span events.
+* REST endpoints remain available for retrospective retrieval.
+
+### Possible Extensions
+* Emit incremental span events (e.g. `span`) before root completion if near-real-time granularity is desired.
+* Add persistence or export hook when eviction thresholds are reached.
+
