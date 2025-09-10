@@ -15,16 +15,13 @@
  */
 package io.github.microcks.observability;
 
-import io.github.microcks.event.SpanStoredEvent;
 import io.opentelemetry.sdk.trace.ReadableSpan;
-
 import io.opentelemetry.sdk.trace.data.SpanData;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 
 import javax.annotation.PreDestroy;
 
@@ -32,7 +29,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * REST controller for accessing trace and span information stored by the SpanStorageService. Provides endpoints to
@@ -44,12 +40,11 @@ import java.util.UUID;
 public class TracingController {
 
    private final SpanStorageService spanStorageService;
-   private final TracingSseManager sseManager;
+   
 
    @Autowired
-   public TracingController(SpanStorageService spanStorageService, TracingSseManager sseManager) {
+   public TracingController(SpanStorageService spanStorageService) {
       this.spanStorageService = spanStorageService;
-      this.sseManager = sseManager;
    }
 
 
@@ -58,7 +53,7 @@ public class TracingController {
     */
    @PreDestroy
    public void cleanup() {
-      sseManager.cleanup();
+   // no-op: reactive stream is managed by SpanStorageService
    }
 
    /**
@@ -148,11 +143,32 @@ public class TracingController {
     * @return SseEmitter for real-time span updates
     */
    @GetMapping(value = "/operations/spans/stream", produces = "text/event-stream")
-   public SseEmitter getSpansForOperationStream(@RequestParam("serviceName") String serviceName,
-         @RequestParam("operationName") String operationName) {
-      SseEmitter emitter = new SseEmitter(Duration.ofMinutes(30).toMillis());
-      sseManager.addSubscription(serviceName, operationName, emitter);
-      return emitter;
+   public Flux<ServerSentEvent<List<SpanData>>> getSpansForOperationStream(
+         @RequestParam("serviceName") String serviceName, @RequestParam("operationName") String operationName) {
+      Flux<List<SpanData>> traces = spanStorageService.traceStream()
+            .filter(n -> {
+               // match any of the keys in the notification to the requested service/op or wildcards
+               if ((serviceName == null || serviceName.isEmpty()) && (operationName == null || operationName.isEmpty())) {
+                  return true; // global stream
+               }
+               return n.keys().stream().anyMatch(k ->
+                     (serviceName == null || serviceName.isEmpty() || serviceName.equals(k.serviceName())) &&
+                     (operationName == null || operationName.isEmpty() || operationName.equals(k.operationName()))
+               );
+            })
+            .map(SpanStorageService.TraceNotification::snapshot);
+
+      // Merge with heartbeat every 15s
+      Flux<List<SpanData>> withHeartbeat = traces.mergeWith(
+            Flux.interval(Duration.ofSeconds(15)).map(i -> List.of())
+      );
+
+      return withHeartbeat.map(list -> {
+         if (list.isEmpty()) {
+            return ServerSentEvent.<List<SpanData>>builder().event("heartbeat").data(List.of()).build();
+         }
+         return ServerSentEvent.<List<SpanData>>builder().event("trace").data(list).build();
+      });
    }
 
 }

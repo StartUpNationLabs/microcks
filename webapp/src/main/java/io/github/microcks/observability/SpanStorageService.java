@@ -15,15 +15,16 @@
  */
 package io.github.microcks.observability;
 
-import io.github.microcks.event.SpanStoredEvent;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.sdk.trace.ReadableSpan;
+import io.opentelemetry.sdk.trace.data.SpanData;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -48,10 +49,8 @@ public class SpanStorageService {
     */
    private final Map<String, List<ReadableSpan>> spansByTraceId = new ConcurrentHashMap<>();
 
-   /**
-    * Event publisher for notifying about new spans
-    */
-   private final ApplicationEventPublisher eventPublisher;
+   /** Reactive sink for pushing completed trace notifications to subscribers. */
+   private final Sinks.Many<TraceNotification> traceSink = Sinks.many().multicast().directBestEffort();
 
    /**
     * Maximum number of traces to keep in memory to prevent memory leaks. When this limit is exceeded, oldest traces are
@@ -64,10 +63,8 @@ public class SpanStorageService {
     */
    private static final int MAX_SPANS_PER_TRACE = 100;
 
-   @Autowired
-   public SpanStorageService(ApplicationEventPublisher eventPublisher) {
-      this.eventPublisher = eventPublisher;
-   }
+   // Default constructor
+   public SpanStorageService() {}
 
 
    /**
@@ -95,10 +92,12 @@ public class SpanStorageService {
          spansByTraceId.remove(oldestTraceId);
       }
 
-      // Publish event about the new span only if it is a root span (no parent)
-      // get parent traceid
+      // Reactive push about the new span only if it is a root span (no parent)
       if (!span.getParentSpanContext().isValid()) {
-         eventPublisher.publishEvent(new SpanStoredEvent(this, span, traceId));
+         List<ReadableSpan> current = spansByTraceId.getOrDefault(traceId, List.of());
+         List<SpanData> snapshot = current.stream().map(ReadableSpan::toSpanData).toList();
+         Set<Key> keys = extractKeysFromSpans(current);
+         traceSink.tryEmitNext(new TraceNotification(traceId, snapshot, keys));
       }
    }
 
@@ -243,5 +242,35 @@ public class SpanStorageService {
       }
 
       return stats;
+   }
+
+   /**
+    * Reactive stream of trace completion notifications (root span ended). Provides a snapshot of the current trace
+    * spans and the extracted keys for routing.
+    */
+   public Flux<TraceNotification> traceStream() {
+      return traceSink.asFlux();
+   }
+
+   /** Extract service/operation keys from spans snapshot. */
+   private Set<Key> extractKeysFromSpans(List<ReadableSpan> spans) {
+      Set<Key> keys = new java.util.HashSet<>();
+      for (ReadableSpan s : spans) {
+         Map<AttributeKey<?>, Object> attributes = s.toSpanData().getAttributes().asMap();
+         String svc = (String) attributes.get(AttributeKey.stringKey("service.name"));
+         String op = (String) attributes.get(AttributeKey.stringKey("operation.name"));
+         if (svc != null && op != null) {
+            keys.add(new Key(svc, op));
+         }
+      }
+      return keys;
+   }
+
+   /** Lightweight routing key for service and operation. */
+   public record Key(String serviceName, String operationName) {
+   }
+
+   /** Notification payload for a completed trace. */
+   public record TraceNotification(String traceId, List<SpanData> snapshot, Set<Key> keys) {
    }
 }
